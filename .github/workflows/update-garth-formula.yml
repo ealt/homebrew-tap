@@ -146,6 +146,7 @@ jobs:
 
       - name: Create or update pull request
         if: steps.commit.outputs.changed == 'true'
+        id: pr
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VERSION: ${{ steps.release.outputs.version }}
@@ -172,7 +173,25 @@ jobs:
               --head "${BRANCH}" \
               --title "Update garth to ${VERSION}" \
               --body "${body}"
+
+            pr_number="$(gh pr list \
+              --head "${BRANCH}" \
+              --base "${BASE_BRANCH}" \
+              --json number \
+              --jq '.[0].number')"
           fi
+
+          echo "number=${pr_number}" >> "${GITHUB_OUTPUT}"
+
+      - name: Enable auto-merge
+        if: steps.commit.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
+        run: |
+          set -euo pipefail
+
+          gh pr merge "${PR_NUMBER}" --auto --squash --delete-branch
 
       - name: No-op summary
         if: steps.commit.outputs.changed != 'true'
