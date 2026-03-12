@@ -1,0 +1,200 @@
+name: Update karya formula
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Release tag to publish in Homebrew (for example v0.1.1). Leave empty to use the latest GitHub release."
+        required: false
+        type: string
+  repository_dispatch:
+    types:
+      - karya_release_published
+  schedule:
+    - cron: "37 4 * * *"
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: update-karya-formula
+  cancel-in-progress: false
+
+jobs:
+  update-formula:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out tap
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.repository.default_branch }}
+
+      - name: Resolve release metadata
+        id: release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          INPUT_RELEASE_TAG: ${{ inputs.release_tag }}
+          DISPATCH_RELEASE_TAG: ${{ github.event.client_payload.release_tag }}
+        run: |
+          set -euo pipefail
+
+          requested_tag="${INPUT_RELEASE_TAG:-}"
+          if [[ -z "${requested_tag}" && -n "${DISPATCH_RELEASE_TAG:-}" ]]; then
+            requested_tag="${DISPATCH_RELEASE_TAG}"
+          fi
+
+          if [[ -n "${requested_tag}" ]]; then
+            tag="${requested_tag}"
+            if [[ "${tag}" != v* ]]; then
+              tag="v${tag}"
+            fi
+            endpoint="repos/ealt/karya/releases/tags/${tag}"
+          else
+            endpoint="repos/ealt/karya/releases/latest"
+          fi
+
+          release_json="$(gh api \
+            -H "Accept: application/vnd.github+json" \
+            "${endpoint}")"
+
+          tag="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["tag_name"])' <<<"${release_json}")"
+          version="${tag#v}"
+          tarball_url="https://github.com/ealt/karya/releases/download/${tag}/karya-${version}.tgz"
+
+          {
+            echo "tag=${tag}"
+            echo "version=${version}"
+            echo "tarball_url=${tarball_url}"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Download tarball and calculate SHA-256
+        id: tarball
+        env:
+          TARBALL_URL: ${{ steps.release.outputs.tarball_url }}
+        run: |
+          set -euo pipefail
+
+          curl -fsSL "${TARBALL_URL}" -o /tmp/karya.tgz
+          sha256="$(sha256sum /tmp/karya.tgz | awk '{print $1}')"
+          echo "sha256=${sha256}" >> "${GITHUB_OUTPUT}"
+
+      - name: Update formula
+        env:
+          TARBALL_URL: ${{ steps.release.outputs.tarball_url }}
+          SHA256: ${{ steps.tarball.outputs.sha256 }}
+        run: |
+          set -euo pipefail
+
+          python3 - <<'PY'
+          import os
+          import pathlib
+          import re
+
+          formula_path = pathlib.Path("Formula/karya.rb")
+          formula = formula_path.read_text()
+
+          formula, url_subs = re.subn(
+              r'^  url ".*"$',
+              f'  url "{os.environ["TARBALL_URL"]}"',
+              formula,
+              count=1,
+              flags=re.MULTILINE,
+          )
+          formula, sha_subs = re.subn(
+              r'^  sha256 ".*"$',
+              f'  sha256 "{os.environ["SHA256"]}"',
+              formula,
+              count=1,
+              flags=re.MULTILINE,
+          )
+
+          if url_subs != 1 or sha_subs != 1:
+              raise SystemExit("Failed to update Formula/karya.rb; expected url and sha256 entries were not found.")
+
+          formula_path.write_text(formula)
+          PY
+
+      - name: Commit formula update
+        id: commit
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          set -euo pipefail
+
+          if git diff --quiet -- Formula/karya.rb; then
+            echo "changed=false" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+
+          branch="update/karya-${VERSION}"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git checkout -B "${branch}"
+          git add Formula/karya.rb
+          git commit -m "karya ${VERSION}"
+          git push --force-with-lease origin "${branch}"
+
+          {
+            echo "changed=true"
+            echo "branch=${branch}"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Create or update pull request
+        if: steps.commit.outputs.changed == 'true'
+        id: pr
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.release.outputs.version }}
+          BRANCH: ${{ steps.commit.outputs.branch }}
+          BASE_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+
+          pr_number="$(gh pr list \
+            --head "${BRANCH}" \
+            --base "${BASE_BRANCH}" \
+            --json number \
+            --jq '.[0].number')"
+
+          body="Updates the Homebrew formula for karya to ${VERSION}."
+
+          if [[ -n "${pr_number}" ]]; then
+            gh pr edit "${pr_number}" \
+              --title "Update karya to ${VERSION}" \
+              --body "${body}"
+          else
+            gh pr create \
+              --base "${BASE_BRANCH}" \
+              --head "${BRANCH}" \
+              --title "Update karya to ${VERSION}" \
+              --body "${body}"
+
+            pr_number="$(gh pr list \
+              --head "${BRANCH}" \
+              --base "${BASE_BRANCH}" \
+              --json number \
+              --jq '.[0].number')"
+          fi
+
+          echo "number=${pr_number}" >> "${GITHUB_OUTPUT}"
+
+      - name: Enable auto-merge
+        if: steps.commit.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
+        run: |
+          set -euo pipefail
+
+          gh pr merge "${PR_NUMBER}" --auto --squash --delete-branch
+
+      - name: No-op summary
+        if: steps.commit.outputs.changed != 'true'
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+        run: echo "Formula already points at karya ${VERSION}; nothing to commit."
