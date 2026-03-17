@@ -183,7 +183,7 @@ jobs:
 
           echo "number=${pr_number}" >> "${GITHUB_OUTPUT}"
 
-      - name: Enable auto-merge
+      - name: Merge pull request                                                                                                                       ││                                                                                  │
         if: steps.commit.outputs.changed == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -191,7 +191,9 @@ jobs:
         run: |
           set -euo pipefail
 
-          gh pr merge "${PR_NUMBER}" --auto --squash --delete-branch
+          if ! gh pr merge "${PR_NUMBER}" --auto --squash --delete-branch 2>/dev/null; then
+            gh pr merge "${PR_NUMBER}" --squash --delete-branch
+          fi
 
       - name: No-op summary
         if: steps.commit.outputs.changed != 'true'
