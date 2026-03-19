@@ -8,7 +8,7 @@ class Karya < Formula
   depends_on "node"
 
   def install
-    system "npm", "install", "--omit=dev", *std_npm_args(libexec)
+    system "npm", "install", "--omit=dev", *std_npm_args
     bin.install_symlink libexec/"bin/karya"
   end
 
