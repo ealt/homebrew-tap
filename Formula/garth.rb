@@ -1,8 +1,8 @@
 class Garth < Formula
   desc "Workspace orchestrator for autonomous AI coding agents"
   homepage "https://github.com/ealt/garth"
-  url "https://github.com/ealt/garth/releases/download/v1.0.0/garth-1.0.0.tar.gz"
-  sha256 "d7d7b1434757b0c1b8957c2a4299e9a6443daabfeb2a01e433e49807befd05d9"
+  url "https://github.com/ealt/garth/releases/download/v1.0.1/garth-1.0.1.tar.gz"
+  sha256 "37cd0b0d5c96e59696b3291d156545fbff6716adfee43739cb93b27637dde8bd"
   license "MIT"
 
   depends_on "python@3.12"
