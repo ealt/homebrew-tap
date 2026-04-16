@@ -9,6 +9,12 @@ class Karya < Formula
 
   def install
     system "npm", "install", "--omit=dev", *std_npm_args
+
+    # Install optional pg dependency for PostgreSQL support
+    cd libexec/"lib/node_modules/karya" do
+      system "npm", "install", "pg"
+    end
+
     bin.install_symlink libexec/"bin/karya"
   end
 
