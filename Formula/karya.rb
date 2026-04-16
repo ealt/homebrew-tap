@@ -1,8 +1,8 @@
 class Karya < Formula
   desc "SQL-backed task tracker for orchestrating AI agents"
   homepage "https://github.com/ealt/karya"
-  url "https://github.com/ealt/karya/releases/download/v2.0.2/karya-2.0.2.tgz"
-  sha256 "6214edb936d3b312a1eff215dce54a18967e089e632edf8ac2faa37968eb98c3"
+  url "https://github.com/ealt/karya/releases/download/v2.0.3/karya-2.0.3.tgz"
+  sha256 "34842305e18979694b12d9a5b68c882b4da222f47b1a96fbd111c799d5d912b3"
   license "MIT"
 
   depends_on "node"
